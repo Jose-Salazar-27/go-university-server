@@ -1,0 +1,86 @@
+services:
+  # PostgreSQL 17 - main database
+  postgres:
+    image: postgres:17-alpine
+    container_name: uni-platform-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: university_platform
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - 5432:5432
+    volumes:
+      - ./.docker/postgres/data:/var/lib/postgresql/data
+      - ./.docker/postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - uni-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d university_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  Valkey (Redis compatible) - cache and sessions
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    container_name: uni-platform-valkey
+    restart: unless-stopped
+    command: valkey-server --appendonly yes --requirepass valkey123
+    ports:
+      - "${VALKEY_PORT:-6379}:6379"
+    volumes:
+      - ./.docker/valkey/data:/data
+      # Configuración personalizada
+      - ./.docker/valkey/valkey.conf:/usr/local/etc/valkey/valkey.conf
+    networks:
+      - uni-network
+    healthcheck:
+      test: ["CMD", "valkey-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PgAdmin 4 - web UI for PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: uni-platform-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@uniplatform.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - 8080:80
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - uni-network
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+
+  # Redis Commander - web UI for Valkey
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: uni-platform-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:valkey:6379:0:${VALKEY_PASSWORD:-valkey123}
+      HTTP_USER: ${REDIS_COMMANDER_USER:-admin}
+      HTTP_PASSWORD: ${REDIS_COMMANDER_PASSWORD:-admin123}
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+    networks:
+      - uni-network
+    depends_on:
+      - valkey
+
+volumes:
+  pgadmin-data:
+
+networks:
+  uni-network:
+    driver: bridge
+    name: uni-platform-network
