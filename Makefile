@@ -9,5 +9,8 @@ migrate-up:
 migrate-down:
 	migrate -path ./migrations -database $(DATABASE_URI) down
 
+migrate-create:
+	migrate create -ext sql -dir ./migrations -seq $(name)
+
 fix-migration:
 	migrate -path ./migrations -database $(DATABASE_URI) force 00001 
