@@ -1,3 +1,6 @@
+-- Ensure `gen_random_uuid()` is available
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -7,8 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
     user_type VARCHAR(20) NOT NULL CHECK (user_type IN ('student', 'professor', 'admin')),
     avatar_url VARCHAR(255),
     is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS students (
@@ -25,8 +28,13 @@ CREATE TABLE IF NOT EXISTS faculties (
     code VARCHAR(20) UNIQUE NOT NULL,
     name VARCHAR(200) NOT NULL,
     description TEXT,
-    dean_id UUID NOT NULL, -- no references yet to avoid migration error since professors table does not exits yet
-    created_at TIMESTAMP DEFAULT NOW()
+    dean_id UUID, -- kept nullable to avoid cyclic dependency during initial migration
+    -- Additional denormalized/decorative columns for data imports
+    dean_name VARCHAR(200),
+    location VARCHAR(200),
+    contact_email VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS departments (
@@ -34,7 +42,13 @@ CREATE TABLE IF NOT EXISTS departments (
     faculty_id UUID REFERENCES faculties(id) ON DELETE CASCADE,
     code VARCHAR(20) NOT NULL,
     name VARCHAR(200) NOT NULL,
-    head_id UUID NOT NULL,
+    head_id UUID,
+    -- Optional descriptive fields to support legacy/import data
+    description TEXT,
+    head_name VARCHAR(200),
+    office_location VARCHAR(100),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(faculty_id, code)
 );
 
@@ -45,17 +59,14 @@ CREATE TABLE IF NOT EXISTS professors (
     hire_date DATE NOT NULL,
     academic_title VARCHAR(100), -- PhD, MSc, etc.
     office_location VARCHAR(100),
-    office_hours TEXT
+    office_hours TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add faculty FK (departments now depends on faculties)
--- ALTER TABLE departments 
--- ADD CONSTRAINT fk_departments_faculty
--- FOREIGN KEY (faculty_id) REFERENCES faculties(id) ON DELETE CASCADE;
-
--- ALTER TABLE departments 
--- ADD CONSTRAINT fk_departments_head 
--- FOREIGN KEY (head_id) REFERENCES professors(id);
+-- Note: FK from faculties.dean_id -> professors(id) is commented out to avoid
+-- migration ordering/cycle problems. Add it after inserting professors, e.g.:
+ALTER TABLE faculties ADD CONSTRAINT fk_faculties_dean FOREIGN KEY (dean_id) REFERENCES professors(id);
 
 CREATE TABLE IF NOT EXISTS degrees (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -64,9 +75,15 @@ CREATE TABLE IF NOT EXISTS degrees (
     name VARCHAR(200) NOT NULL,
     degree_type VARCHAR(50) CHECK (degree_type IN ('bachelor', 'master', 'phd', 'associate')),
     total_credits INTEGER NOT NULL,
+    short_name VARCHAR(100),
+    duration_semesters INTEGER,
     duration_years INTEGER,
+    modality VARCHAR(50),
+    coordinator_name VARCHAR(200),
     is_active BOOLEAN DEFAULT true,
-    UNIQUE(department_id, code)
+    UNIQUE(department_id, code),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS courses (
@@ -77,10 +94,34 @@ CREATE TABLE IF NOT EXISTS courses (
     credits INTEGER NOT NULL CHECK (credits > 0),
     department_id UUID REFERENCES departments(id),
     prerequisites TEXT, 
+    theoretical_hours INTEGER,
+    practical_hours INTEGER,
+    level INTEGER,
+    course_type VARCHAR(50),
+    is_core BOOLEAN DEFAULT false,
     is_elective BOOLEAN DEFAULT false,
     is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(code, department_id) -- the code could be repetead between departments
+);
+
+-- Table to store explicit course prerequisites (relational)
+CREATE TABLE IF NOT EXISTS course_prerequisites (
+    course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+    prerequisite_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+    is_mandatory BOOLEAN DEFAULT true,
+    minimum_grade DECIMAL(4,2),
+    PRIMARY KEY (course_id, prerequisite_id)
+);
+
+-- Table to represent elective groups for degrees
+CREATE TABLE IF NOT EXISTS degree_electives (
+    degree_id UUID REFERENCES degrees(id) ON DELETE CASCADE,
+    elective_group VARCHAR(100) NOT NULL,
+    course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+    credits_awarded INTEGER,
+    PRIMARY KEY (degree_id, elective_group, course_id)
 );
 
 CREATE TABLE IF NOT EXISTS degree_courses (
@@ -116,6 +157,8 @@ CREATE TABLE IF NOT EXISTS course_sections (
     modality VARCHAR(20) DEFAULT 'in_person' 
         CHECK (modality IN ('in_person', 'virtual', 'hybrid')),
     is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(course_id, academic_period_id, section_code)
 );
 
@@ -143,9 +186,9 @@ CREATE TABLE IF NOT EXISTS assignments (
     description TEXT,
     assignment_type VARCHAR(50) CHECK (assignment_type IN ('homework', 'project', 'exam', 'quiz', 'essay')),
     max_points DECIMAL(5,2) NOT NULL,
-    due_date TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    due_date TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     is_published BOOLEAN DEFAULT false,
     attachments JSONB -- URLs de archivos: [{name: "instrucciones.pdf", url: "...", type: "pdf"}]
 );
@@ -154,7 +197,7 @@ CREATE TABLE IF NOT EXISTS submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     assignment_id UUID REFERENCES assignments(id) ON DELETE CASCADE,
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    submitted_at TIMESTAMP DEFAULT NOW(),
+    submitted_at TIMESTAMPTZ DEFAULT NOW(),
     content TEXT, -- Texto de la entrega
     attachments JSONB, -- Archivos adjuntos del estudiante
     status VARCHAR(20) DEFAULT 'submitted' 
@@ -170,7 +213,7 @@ CREATE TABLE IF NOT EXISTS submission_feedbacks (
     professor_id UUID REFERENCES professors(id),
     comment TEXT NOT NULL,
     rubric_evaluation JSONB, -- Evaluación por rúbrica si aplica
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
     is_draft BOOLEAN DEFAULT false
 );
 
@@ -181,6 +224,12 @@ CREATE TABLE IF NOT EXISTS final_grades (
     final_score DECIMAL(5,2) CHECK (final_score BETWEEN 0 AND 100),
     letter_grade VARCHAR(2),
     comments TEXT,
-    published_at TIMESTAMP,
+    published_at TIMESTAMPTZ,
     is_approved BOOLEAN DEFAULT false -- Si requiere aprobación del departamento
 );
+
+-- Additional helpful indexes for joins/filters
+CREATE INDEX IF NOT EXISTS idx_departments_faculty_id ON departments(faculty_id);
+CREATE INDEX IF NOT EXISTS idx_courses_department_id ON courses(department_id);
+CREATE INDEX IF NOT EXISTS idx_degrees_department_id ON degrees(department_id);
+CREATE INDEX IF NOT EXISTS idx_professors_department_id ON professors(department_id);
