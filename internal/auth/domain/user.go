@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -17,6 +18,10 @@ var (
 	ErrInvalidUserType   = errors.New("invalid user type")
 	ErrEmptyPasswordHash = errors.New("password hash cannot be empty")
 )
+
+type UserRepository interface {
+	Create(ctx context.Context, u *User) (err error)
+}
 
 // User represents a user entity in the domain
 type User struct {
