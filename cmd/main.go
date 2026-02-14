@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 
+	"github.com/Jose-Salazar-27/go-university-server/internal/shared/kernel/infra/httpx"
+	"github.com/gofiber/fiber/v3"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -22,6 +24,12 @@ func main() {
 	}
 
 	log.Println("migrations executed successfully")
+
+	app := fiber.New(fiber.Config{
+		StructValidator: httpx.NewRequestValidator(),
+	})
+
+	log.Fatal(app.Listen(":3000"))
 }
 
 func handleMigrationError(err error) {
