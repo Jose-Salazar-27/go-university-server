@@ -19,6 +19,7 @@ func (mod Module) ConfigureEnpoints() {
 	group := mod.engine.Group(mod.name)
 
 	userRepository := persistence.NewUserRepository(mod.db)
+	h := infra.NewUserHandler(application.NewCreateUserInteractor(userRepository, nil))
 
-	group.Post("", infra.NewCreateUserHandler(application.NewCreateUserInteractor(userRepository, nil)))
+	group.Post("", h.CreateUser)
 }

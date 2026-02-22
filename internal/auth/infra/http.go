@@ -7,15 +7,15 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-type createUserHandler struct {
+type userHandler struct {
 	userCreator *application.CreateUserInteractor
 }
 
-func NewCreateUserHandler(uc *application.CreateUserInteractor) *createUserHandler {
-	return &createUserHandler{uc}
+func NewUserHandler(uc *application.CreateUserInteractor) *userHandler {
+	return &userHandler{uc}
 }
 
-func (h createUserHandler) Handle(c fiber.Ctx) error {
+func (h userHandler) CreateUser(c fiber.Ctx) error {
 	var req application.CreateUserInput
 
 	if err := c.Bind().Body(req); err != nil {
