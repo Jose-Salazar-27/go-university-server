@@ -12,11 +12,11 @@ import (
 
 type (
 	CreateUserInput struct {
-		Email     string          `json:"email"`
-		Password  string          `json:"password"`
-		FirstName string          `json:"first_name"`
-		LastName  string          `json:"last_name"`
-		UserType  domain.UserType `json:"user_type"`
+		Email     string          `json:"email" validate:"required,email"`
+		Password  string          `json:"password" validate:"required,min=8"`
+		FirstName string          `json:"first_name" validate:"required"`
+		LastName  string          `json:"last_name" validate:"required"`
+		UserType  domain.UserType `json:"user_type" validate:"required"`
 	}
 
 	CreateUserOutput struct {
@@ -25,16 +25,21 @@ type (
 	}
 )
 
-type CreateUserInteractor struct {
+//go:generate mockgen -destination user_interactor_mock.go -package application . UserInteractor
+type UserInteractor interface {
+	Create(input CreateUserInput) (CreateUserOutput, error)
+}
+
+type userInteractor struct {
 	repository domain.UserRepository
 	storage    shared.Storage
 }
 
-func NewCreateUserInteractor(r domain.UserRepository, s shared.Storage) *CreateUserInteractor {
-	return &CreateUserInteractor{r, s}
+func NewCreateUserInteractor(r domain.UserRepository, s shared.Storage) *userInteractor {
+	return &userInteractor{r, s}
 }
 
-func (interactor CreateUserInteractor) Execute(in CreateUserInput) (CreateUserOutput, error) {
+func (interactor userInteractor) Create(in CreateUserInput) (CreateUserOutput, error) {
 	// hash password, doesn't save it as plain text
 	bytes, err := bcrypt.GenerateFromPassword([]byte(in.Password), 14)
 	if err != nil {
