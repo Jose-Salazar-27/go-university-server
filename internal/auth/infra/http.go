@@ -8,10 +8,10 @@ import (
 )
 
 type userHandler struct {
-	userCreator *application.CreateUserInteractor
+	interactor application.UserInteractor
 }
 
-func NewUserHandler(uc *application.CreateUserInteractor) *userHandler {
+func NewUserHandler(uc application.UserInteractor) *userHandler {
 	return &userHandler{uc}
 }
 
@@ -22,7 +22,7 @@ func (h userHandler) CreateUser(c fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	data, err := h.userCreator.Execute(req)
+	data, err := h.interactor.Create(req)
 	if err != nil {
 		return c.Status(http.StatusOK).JSON(data)
 	}
